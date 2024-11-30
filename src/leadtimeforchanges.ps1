@@ -10,7 +10,8 @@ Param(
     [string] $appId = "",
     [string] $appInstallationId = "",
     [string] $appPrivateKey = "",
-    [string] $apiUrl = "https://api.github.com"
+    [string] $apiUrl = "https://api.github.com",
+    [string] $ignoreList = ""
 )
 
 #The main function
@@ -24,7 +25,9 @@ function Main ([string] $ownerRepo,
     [string] $appId = "",
     [string] $appInstallationId = "",
     [string] $appPrivateKey = "",
-    [string] $apiUrl = "https://api.github.com")
+    [string] $apiUrl = "https://api.github.com",
+    [string] $ignoreList = ""
+)
 {
 
     #==========================================
@@ -43,6 +46,11 @@ function Main ([string] $ownerRepo,
     Write-Host "Workflows: $($workflowsArray[0])"
     Write-Host "Branch: $branch"
     Write-Host "Commit counting method '$commitCountingMethod' being used"
+
+    $ignorePatterns = @()
+    if ($ignoreList -ne "") {
+        $ignorePatterns = $ignoreList -split ',' | ForEach-Object { $_.Trim() }
+    }
 
     #==========================================
     # Get authorization headers
@@ -73,38 +81,49 @@ function Main ([string] $ownerRepo,
         $mergedAt = $pr.merged_at
         if ($mergedAt -ne $null -and $pr.merged_at -gt (Get-Date).AddDays(-$numberOfDays))
         {
-            $prCounter++
-            $url2 = "$apiUrl/repos/$owner/$repo/pulls/$($pr.number)/commits?per_page=100";
-            if (!$authHeader)
-            {
-                #No authentication
-                $prCommitsresponse = Invoke-RestMethod -Uri $url2 -ContentType application/json -Method Get -SkipHttpErrorCheck -StatusCodeVariable "HTTPStatus"
-            }
-            else
-            {
-                $prCommitsresponse = Invoke-RestMethod -Uri $url2 -ContentType application/json -Method Get -Headers @{Authorization=($authHeader["Authorization"])} -SkipHttpErrorCheck -StatusCodeVariable "HTTPStatus" 
-            }
-            if ($prCommitsresponse.Length -ge 1)
-            {
-                if ($commitCountingMethod -eq "last")
-                {
-                    $startDate = $prCommitsresponse[$prCommitsresponse.Length-1].commit.committer.date
+            # Check if branch should be ignored
+            $shouldIgnore = $false
+            foreach ($pattern in $ignorePatterns) {
+                if (Test-WildcardMatch $pr.head.ref $pattern) {
+                    $shouldIgnore = $true
+                    break
                 }
-                elseif ($commitCountingMethod -eq "first")
+            }
+            
+            if (-not $shouldIgnore) {
+                $prCounter++
+                $url2 = "$apiUrl/repos/$owner/$repo/pulls/$($pr.number)/commits?per_page=100";
+                if (!$authHeader)
                 {
-                    $startDate = $prCommitsresponse[0].commit.committer.date
+                    #No authentication
+                    $prCommitsresponse = Invoke-RestMethod -Uri $url2 -ContentType application/json -Method Get -SkipHttpErrorCheck -StatusCodeVariable "HTTPStatus"
                 }
                 else
                 {
-                    Write-Output "Commit counting method '$commitCountingMethod' is unknown. Expecting 'first' or 'last'"
+                    $prCommitsresponse = Invoke-RestMethod -Uri $url2 -ContentType application/json -Method Get -Headers @{Authorization=($authHeader["Authorization"])} -SkipHttpErrorCheck -StatusCodeVariable "HTTPStatus" 
                 }
-            }
-        
-            if ($startDate -ne $null)
-            {
-                $prTimeDuration = New-TimeSpan –Start $startDate –End $mergedAt
-                $totalPRHours += $prTimeDuration.TotalHours
-                #Write-Host "$($pr.number) time duration in hours: $($prTimeDuration.TotalHours)"
+                if ($prCommitsresponse.Length -ge 1)
+                {
+                    if ($commitCountingMethod -eq "last")
+                    {
+                        $startDate = $prCommitsresponse[$prCommitsresponse.Length-1].commit.committer.date
+                    }
+                    elseif ($commitCountingMethod -eq "first")
+                    {
+                        $startDate = $prCommitsresponse[0].commit.committer.date
+                    }
+                    else
+                    {
+                        Write-Output "Commit counting method '$commitCountingMethod' is unknown. Expecting 'first' or 'last'"
+                    }
+                }
+            
+                if ($startDate -ne $null)
+                {
+                    $prTimeDuration = New-TimeSpan –Start $startDate –End $mergedAt
+                    $totalPRHours += $prTimeDuration.TotalHours
+                    #Write-Host "$($pr.number) time duration in hours: $($prTimeDuration.TotalHours)"
+                }
             }
         }
     }
@@ -412,4 +431,21 @@ function GetFormattedMarkdownForNoResult([string] $workflows, [string] $numberOf
     return $markdown
 }
 
-main -ownerRepo $ownerRepo -workflows $workflows -branch $branch -numberOfDays $numberOfDays -commitCountingMethod $commitCountingMethod  -patToken $patToken -actionsToken $actionsToken -appId $appId -appInstallationId $appInstallationId -appPrivateKey $appPrivateKey -apiUrl $apiUrl
+# Add new helper function to test wildcard matches
+function Test-WildcardMatch {
+    param (
+        [string]$BranchName,
+        [string]$Pattern
+    )
+    
+    # Convert the glob pattern to regex
+    $regexPattern = $Pattern.Replace(".", "\.")
+    $regexPattern = $regexPattern.Replace("**", "###")  # Temp placeholder for **
+    $regexPattern = $regexPattern.Replace("*", "[^/]*")
+    $regexPattern = $regexPattern.Replace("###", ".*")  # Replace ** with .*
+    $regexPattern = "^" + $regexPattern + "$"
+    
+    return $BranchName -match $regexPattern
+}
+
+main -ownerRepo $ownerRepo -workflows $workflows -branch $branch -numberOfDays $numberOfDays -commitCountingMethod $commitCountingMethod  -patToken $patToken -actionsToken $actionsToken -appId $appId -appInstallationId $appInstallationId -appPrivateKey $appPrivateKey -apiUrl $apiUrl -ignoreList $ignoreList

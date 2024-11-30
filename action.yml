@@ -1,6 +1,6 @@
-name: 'DORA lead time for changes'
-description: 'A GitHub Action to roughly calculate DORA lead time for changes'
-author: developermetrics.org
+name: 'DORA lead time for changes with ignore list'
+description: 'Based on the DORA lead time for changes action, but with an ignore list'
+author: jonassonn
 branding:
   icon: activity
   color: gray-dark
@@ -19,7 +19,7 @@ inputs:
   number-of-days: # optional, defaults to 30
     description: number of days to scan
     required: true
-    default: 30
+    default: '30'
   commit-counting-method: #optional, defaults to 'last'
     description: accepts two values, 'last' - to start timing from the last commit of a PR, and 'first' to start timing from the first commit of a PR
     required: true
@@ -42,6 +42,10 @@ inputs:
   api-url:
     description: 'the URL of the GitHub API'
     default: ${{ github.api_url }}
+  ignore-branches:
+    description: 'Comma-separated list of branch patterns to ignore (supports * and ** wildcards)'
+    required: false
+    default: ''
 outputs:
   markdown-file:
     description: "The markdown that will be posted to the job summary, so that the markdown can saved and used other places (e.g.: README.md)"
@@ -53,7 +57,7 @@ runs:
       id: lead-time
       shell: pwsh
       run: |
-         $result = ${{ github.action_path }}/src/leadtimeforchanges.ps1 -ownerRepo "${{ inputs.owner-repo }}" -workflows "${{ inputs.workflows }}" -branch "${{ inputs.default-branch }}" -numberOfDays ${{ inputs.number-of-days }} -commitCountingMethod ${{ inputs.commit-counting-method }} -patToken "${{ inputs.pat-token }}" -actionsToken "${{ inputs.actions-token }}" -appId "${{ inputs.app-id }}" -appInstallationId "${{ inputs.app-install-id }}" -appPrivateKey "${{ inputs.app-private-key }}" -apiUrl "${{ inputs.api-url }}"
+         $result = ${{ github.action_path }}/src/leadtimeforchanges.ps1 -ownerRepo "${{ inputs.owner-repo }}" -workflows "${{ inputs.workflows }}" -branch "${{ inputs.default-branch }}" -numberOfDays ${{ inputs.number-of-days }} -commitCountingMethod ${{ inputs.commit-counting-method }} -patToken "${{ inputs.pat-token }}" -actionsToken "${{ inputs.actions-token }}" -appId "${{ inputs.app-id }}" -appInstallationId "${{ inputs.app-install-id }}" -appPrivateKey "${{ inputs.app-private-key }}" -apiUrl "${{ inputs.api-url }}" -ignoreList "${{ inputs.ignore-branches }}"
          $filePath="dora-lead-time-markdown.md"
          Set-Content -Path $filePath -Value $result
          "markdown-file=$filePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
