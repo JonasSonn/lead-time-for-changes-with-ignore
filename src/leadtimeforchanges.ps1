@@ -95,6 +95,28 @@ function Main ([string] $ownerRepo,
             
             if (-not $shouldIgnore) {
                 $prCounter++
+                # Get the PR timeline to find when it was marked ready for review
+                $timelineUrl = "$apiUrl/repos/$owner/$repo/issues/$($pr.number)/timeline"
+                if (!$authHeader)
+                {
+                    $timelineResponse = Invoke-RestMethod -Uri $timelineUrl -Headers @{Accept="application/vnd.github.mockingbird-preview+json"} -Method Get -SkipHttpErrorCheck -StatusCodeVariable "HTTPStatus"
+                }
+                else
+                {
+                    $timelineResponse = Invoke-RestMethod -Uri $timelineUrl -Headers @{Authorization=($authHeader["Authorization"]); Accept="application/vnd.github.mockingbird-preview+json"} -Method Get -SkipHttpErrorCheck -StatusCodeVariable "HTTPStatus"
+                }
+                
+                # Find when the PR was marked ready for review (if it was ever a draft)
+                $readyForReviewDate = $null
+                if ($pr.draft) {
+                    foreach ($event in $timelineResponse) {
+                        if ($event.event -eq "ready_for_review") {
+                            $readyForReviewDate = $event.created_at
+                            break
+                        }
+                    }
+                }
+
                 $url2 = "$apiUrl/repos/$owner/$repo/pulls/$($pr.number)/commits?per_page=100";
                 if (!$authHeader)
                 {
@@ -123,13 +145,19 @@ function Main ([string] $ownerRepo,
             
                 if ($startDate -ne $null)
                 {
-                    $prTimeDuration = New-TimeSpan –Start $startDate –End $mergedAt
+                    # Use ready_for_review date if it exists, otherwise use the original start date
+                    $effectiveStartDate = if ($readyForReviewDate -and ($readyForReviewDate -gt $startDate)) { $readyForReviewDate } else { $startDate }
+                    $prTimeDuration = New-TimeSpan –Start $effectiveStartDate –End $mergedAt
                     $totalPRHours += $prTimeDuration.TotalHours
                     Write-Host "PR #$($pr.number): '$($pr.title)'"
                     Write-Host "  Branch: $($pr.head.ref)"
-                    Write-Host "  Created: $($pr.created_at)"
+                    Write-Host "  Created: $($pr.created_at)$(if ($pr.draft) { " (as draft)" })"
+                    if ($readyForReviewDate) {
+                        Write-Host "  Ready for Review: $readyForReviewDate"
+                    }
                     Write-Host "  Merged: $($mergedAt)"
                     Write-Host "  Duration: $($prTimeDuration.TotalHours) hours"
+                    Write-Host "  Duration (excluding draft): $($prTimeDuration.TotalHours) hours"
                     Write-Host "  URL: $($pr.html_url)`n"
                 }
             }
