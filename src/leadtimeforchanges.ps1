@@ -76,6 +76,7 @@ function Main ([string] $ownerRepo,
 
     $prCounter = 0
     $totalPRHours = 0
+    $collectedPRs = @()
     Write-Host "`nCollected Pull Requests:"
     Write-Host "======================="
     Foreach ($pr in $prsResponse){
@@ -150,6 +151,8 @@ function Main ([string] $ownerRepo,
                     $totalDuration = New-TimeSpan –Start $effectiveStartDate –End $mergedAt
                     $businessHours = Get-BusinessHours -StartDate $effectiveStartDate -EndDate $mergedAt
                     $totalPRHours += $businessHours  # Use business hours for the total
+                    $pr | Add-Member -NotePropertyName business_hours -NotePropertyValue $businessHours
+                    $collectedPRs += $pr
                     Write-Host "PR #$($pr.number): '$($pr.title)'"
                     Write-Host "  Branch: $($pr.head.ref)"
                     Write-Host "  Created: $($pr.created_at)$(if ($pr.draft) { " (as draft)" })"
@@ -170,6 +173,9 @@ function Main ([string] $ownerRepo,
     Write-Host "Total PRs processed: $prCounter"
     Write-Host "Total hours: $totalPRHours"
     Write-Host "Average hours per PR: $($totalPRHours / [math]::Max(1, $prCounter))`n"
+
+    # Calculate and display daily averages
+    Get-DailyAverages -PullRequests $collectedPRs -NumberOfDays $numberOfDays
 
     #==========================================
     #Get workflow definitions from github
@@ -528,6 +534,145 @@ function Get-BusinessHours {
     }
     
     return $totalHours
+}
+
+# Add this helper function to calculate DORA rating
+function Get-DoraRating {
+    param (
+        [double]$Hours
+    )
+    
+    $dailyDeployment = 24
+    $weeklyDeployment = 24 * 7
+    $monthlyDeployment = 24 * 30
+    $everySixMonthsDeployment = 24 * 30 * 6
+
+    if ($Hours -le 0) {
+        return @{ Rating = "None"; Color = "lightgrey" }
+    }
+    elseif ($Hours -lt 1) {
+        return @{ Rating = "Elite"; Color = "brightgreen" }
+    }
+    elseif ($Hours -le $dailyDeployment) {
+        return @{ Rating = "Elite"; Color = "brightgreen" }
+    }
+    elseif ($Hours -gt $dailyDeployment -and $Hours -le $weeklyDeployment) {
+        return @{ Rating = "High"; Color = "green" }
+    }
+    elseif ($Hours -gt $weeklyDeployment -and $Hours -le $monthlyDeployment) {
+        return @{ Rating = "High"; Color = "green" }
+    }
+    elseif ($Hours -gt $monthlyDeployment -and $Hours -le $everySixMonthsDeployment) {
+        return @{ Rating = "Medium"; Color = "yellow" }
+    }
+    else {
+        return @{ Rating = "Low"; Color = "red" }
+    }
+}
+
+# Modify the Get-DailyAverages function
+function Get-DailyAverages {
+    param (
+        [array]$PullRequests,
+        [int]$NumberOfDays,
+        [int]$WindowDays = 14  # Default to show last 14 days
+    )
+    
+    # Create a hashtable to store PRs by date
+    $dailyStats = @{}
+    
+    # Initialize all dates in the range with empty arrays
+    $endDate = Get-Date
+    $startDate = $endDate.AddDays(-[Math]::Min($WindowDays, $NumberOfDays))
+    
+    for ($date = $startDate; $date -le $endDate; $date = $date.AddDays(1)) {
+        $dailyStats[$date.Date] = @{
+            PRCount = 0
+            TotalHours = 0
+            PRs = @()
+        }
+    }
+    
+    # Group PRs by merge date
+    foreach ($pr in $PullRequests) {
+        if ($pr.merged_at -ne $null) {
+            $mergeDate = [DateTime]$pr.merged_at
+            if ($mergeDate -ge $startDate -and $mergeDate -le $endDate) {
+                $dailyStats[$mergeDate.Date].PRCount++
+                $dailyStats[$mergeDate.Date].TotalHours += $pr.business_hours
+                $dailyStats[$mergeDate.Date].PRs += $pr
+            }
+        }
+    }
+    
+    # Calculate and display the daily averages
+    Write-Host "`nDaily DORA Metrics (Last $WindowDays days):"
+    Write-Host "================================="
+    
+    $totalPRs = 0
+    $totalHours = 0
+    $daysWithPRs = 0
+    $ratings = @{
+        Elite = 0
+        High = 0
+        Medium = 0
+        Low = 0
+        None = 0
+    }
+    
+    for ($date = $startDate; $date -le $endDate; $date = $date.AddDays(1)) {
+        $stats = $dailyStats[$date.Date]
+        $avgHours = if ($stats.PRCount -gt 0) { $stats.TotalHours / $stats.PRCount } else { 0 }
+        $doraRating = Get-DoraRating -Hours $avgHours
+        
+        $totalPRs += $stats.PRCount
+        $totalHours += $stats.TotalHours
+        if ($stats.PRCount -gt 0) { 
+            $daysWithPRs++
+            $ratings[$doraRating.Rating]++
+        }
+        
+        $dateStr = $date.ToString("yyyy-MM-dd")
+        $dayName = $date.DayOfWeek.ToString()
+        
+        # Format the output with DORA rating
+        $ratingColor = switch ($doraRating.Rating) {
+            "Elite" { "92" }  # Light green
+            "High" { "32" }   # Green
+            "Medium" { "93" } # Light yellow
+            "Low" { "91" }    # Light red
+            default { "37" }  # Light gray
+        }
+        
+        Write-Host ("{0} ({1}): " -f $dateStr, $dayName) -NoNewline
+        Write-Host $doraRating.Rating -ForegroundColor $ratingColor -NoNewline
+        Write-Host (", {0} PRs, Avg {1:F2} hours" -f $stats.PRCount, $avgHours)
+        
+        if ($stats.PRCount -gt 0) {
+            foreach ($pr in $stats.PRs) {
+                Write-Host "  - #$($pr.number): $($pr.title) ($($pr.business_hours:F2) hours)"
+            }
+        }
+    }
+    
+    # Calculate overall statistics
+    $overallAvgHours = if ($totalPRs -gt 0) { $totalHours / $totalPRs } else { 0 }
+    $dailyAvgPRs = if ($daysWithPRs -gt 0) { $totalPRs / $daysWithPRs } else { 0 }
+    $overallRating = Get-DoraRating -Hours $overallAvgHours
+    
+    Write-Host "`nPeriod Statistics:"
+    Write-Host "=================="
+    Write-Host "Total PRs: $totalPRs"
+    Write-Host "Days with PRs: $daysWithPRs"
+    Write-Host "Average PRs per active day: $($dailyAvgPRs:F2)"
+    Write-Host "Overall average hours per PR: $($overallAvgHours:F2)"
+    Write-Host "Overall DORA Rating: $($overallRating.Rating)"
+    Write-Host "`nDaily DORA Ratings Distribution:"
+    Write-Host "Elite: $($ratings.Elite) days"
+    Write-Host "High: $($ratings.High) days"
+    Write-Host "Medium: $($ratings.Medium) days"
+    Write-Host "Low: $($ratings.Low) days"
+    Write-Host "No PRs: $($ratings.None) days"
 }
 
 main -ownerRepo $ownerRepo -workflows $workflows -branch $branch -numberOfDays $numberOfDays -commitCountingMethod $commitCountingMethod  -patToken $patToken -actionsToken $actionsToken -appId $appId -appInstallationId $appInstallationId -appPrivateKey $appPrivateKey -apiUrl $apiUrl -ignoreList $ignoreList
