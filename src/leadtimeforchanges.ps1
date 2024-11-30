@@ -147,8 +147,9 @@ function Main ([string] $ownerRepo,
                 {
                     # Use ready_for_review date if it exists, otherwise use the original start date
                     $effectiveStartDate = if ($readyForReviewDate -and ($readyForReviewDate -gt $startDate)) { $readyForReviewDate } else { $startDate }
-                    $prTimeDuration = New-TimeSpan –Start $effectiveStartDate –End $mergedAt
-                    $totalPRHours += $prTimeDuration.TotalHours
+                    $totalDuration = New-TimeSpan –Start $effectiveStartDate –End $mergedAt
+                    $businessHours = Get-BusinessHours -StartDate $effectiveStartDate -EndDate $mergedAt
+                    $totalPRHours += $businessHours  # Use business hours for the total
                     Write-Host "PR #$($pr.number): '$($pr.title)'"
                     Write-Host "  Branch: $($pr.head.ref)"
                     Write-Host "  Created: $($pr.created_at)$(if ($pr.draft) { " (as draft)" })"
@@ -156,8 +157,8 @@ function Main ([string] $ownerRepo,
                         Write-Host "  Ready for Review: $readyForReviewDate"
                     }
                     Write-Host "  Merged: $($mergedAt)"
-                    Write-Host "  Duration: $($prTimeDuration.TotalHours) hours"
-                    Write-Host "  Duration (excluding draft): $($prTimeDuration.TotalHours) hours"
+                    Write-Host "  Total Calendar Duration: $($totalDuration.TotalHours) hours"
+                    Write-Host "  Business Hours Duration: $($businessHours) hours"
                     Write-Host "  URL: $($pr.html_url)`n"
                 }
             }
