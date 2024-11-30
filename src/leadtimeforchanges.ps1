@@ -76,6 +76,8 @@ function Main ([string] $ownerRepo,
 
     $prCounter = 0
     $totalPRHours = 0
+    Write-Host "`nCollected Pull Requests:"
+    Write-Host "======================="
     Foreach ($pr in $prsResponse){
 
         $mergedAt = $pr.merged_at
@@ -86,6 +88,7 @@ function Main ([string] $ownerRepo,
             foreach ($pattern in $ignorePatterns) {
                 if (Test-WildcardMatch $pr.head.ref $pattern) {
                     $shouldIgnore = $true
+                    Write-Host "Ignoring PR #$($pr.number) from branch '$($pr.head.ref)' (matched pattern: $pattern)"
                     break
                 }
             }
@@ -122,11 +125,22 @@ function Main ([string] $ownerRepo,
                 {
                     $prTimeDuration = New-TimeSpan –Start $startDate –End $mergedAt
                     $totalPRHours += $prTimeDuration.TotalHours
-                    #Write-Host "$($pr.number) time duration in hours: $($prTimeDuration.TotalHours)"
+                    Write-Host "PR #$($pr.number): '$($pr.title)'"
+                    Write-Host "  Branch: $($pr.head.ref)"
+                    Write-Host "  Created: $($pr.created_at)"
+                    Write-Host "  Merged: $($mergedAt)"
+                    Write-Host "  Duration: $($prTimeDuration.TotalHours) hours"
+                    Write-Host "  URL: $($pr.html_url)`n"
                 }
             }
         }
     }
+
+    Write-Host "`nSummary:"
+    Write-Host "========"
+    Write-Host "Total PRs processed: $prCounter"
+    Write-Host "Total hours: $totalPRHours"
+    Write-Host "Average hours per PR: $($totalPRHours / [math]::Max(1, $prCounter))`n"
 
     #==========================================
     #Get workflow definitions from github
