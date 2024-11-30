@@ -637,11 +637,11 @@ function Get-DailyAverages {
         
         # Format the output with DORA rating
         $ratingColor = switch ($doraRating.Rating) {
-            "Elite" { "92" }  # Light green
-            "High" { "32" }   # Green
-            "Medium" { "93" } # Light yellow
-            "Low" { "91" }    # Light red
-            default { "37" }  # Light gray
+            "Elite" { "Green" }
+            "High" { "DarkGreen" }
+            "Medium" { "Yellow" }
+            "Low" { "Red" }
+            default { "Gray" }
         }
         
         Write-Host ("{0} ({1}): " -f $dateStr, $dayName) -NoNewline
