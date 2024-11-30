@@ -646,11 +646,11 @@ function Get-DailyAverages {
         
         Write-Host ("{0} ({1}): " -f $dateStr, $dayName) -NoNewline
         Write-Host $doraRating.Rating -ForegroundColor $ratingColor -NoNewline
-        Write-Host (", {0} PRs, Avg {1:F2} hours" -f $stats.PRCount, $avgHours)
+        Write-Host (", {0} PRs, Avg {1:F2} hours" -f $stats.PRCount, [math]::Round($avgHours, 2))
         
         if ($stats.PRCount -gt 0) {
             foreach ($pr in $stats.PRs) {
-                Write-Host "  - #$($pr.number): $($pr.title) ($($pr.business_hours:F2) hours)"
+                Write-Host ("  - #$($pr.number): $($pr.title) ({0:F2} hours)" -f $pr.business_hours)
             }
         }
     }
@@ -664,8 +664,8 @@ function Get-DailyAverages {
     Write-Host "=================="
     Write-Host "Total PRs: $totalPRs"
     Write-Host "Days with PRs: $daysWithPRs"
-    Write-Host "Average PRs per active day: $($dailyAvgPRs:F2)"
-    Write-Host "Overall average hours per PR: $($overallAvgHours:F2)"
+    Write-Host ("Average PRs per active day: {0:F2}" -f $dailyAvgPRs)
+    Write-Host ("Overall average hours per PR: {0:F2}" -f $overallAvgHours)
     Write-Host "Overall DORA Rating: $($overallRating.Rating)"
     Write-Host "`nDaily DORA Ratings Distribution:"
     Write-Host "Elite: $($ratings.Elite) days"
