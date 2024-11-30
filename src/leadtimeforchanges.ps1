@@ -490,4 +490,43 @@ function Test-WildcardMatch {
     return $BranchName -match $regexPattern
 }
 
+# Add this new helper function to calculate business hours
+function Get-BusinessHours {
+    param (
+        [DateTime]$StartDate,
+        [DateTime]$EndDate
+    )
+    
+    # Convert to local time to make date comparisons easier
+    $currentDate = $StartDate.ToLocalTime()
+    $endDate = $EndDate.ToLocalTime()
+    $totalHours = 0
+    
+    while ($currentDate -lt $endDate) {
+        # Check if current day is weekday (Monday = 1, Sunday = 0)
+        if ($currentDate.DayOfWeek -ne 'Saturday' -and $currentDate.DayOfWeek -ne 'Sunday') {
+            # For the first day, only count remaining hours in the day
+            if ($currentDate.Date -eq $StartDate.Date) {
+                $hoursInDay = [Math]::Min(
+                    (New-TimeSpan -Start $currentDate -End $currentDate.Date.AddDays(1)).TotalHours,
+                    (New-TimeSpan -Start $currentDate -End $endDate).TotalHours
+                )
+                $totalHours += $hoursInDay
+            }
+            # For the last day, only count hours until the end time
+            elseif ($currentDate.Date -eq $endDate.Date) {
+                $hoursInDay = (New-TimeSpan -Start $currentDate.Date -End $endDate).TotalHours
+                $totalHours += $hoursInDay
+            }
+            # For full days in between, add 24 hours
+            else {
+                $totalHours += 24
+            }
+        }
+        $currentDate = $currentDate.AddDays(1).Date
+    }
+    
+    return $totalHours
+}
+
 main -ownerRepo $ownerRepo -workflows $workflows -branch $branch -numberOfDays $numberOfDays -commitCountingMethod $commitCountingMethod  -patToken $patToken -actionsToken $actionsToken -appId $appId -appInstallationId $appInstallationId -appPrivateKey $appPrivateKey -apiUrl $apiUrl -ignoreList $ignoreList
